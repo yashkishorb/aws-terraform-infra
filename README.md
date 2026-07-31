@@ -5,7 +5,7 @@ production-style AWS environment: a VPC with public/private subnets, an
 Auto Scaling Group of EC2 instances behind an Application Load Balancer,
 CloudWatch monitoring, and a GitHub Actions pipeline to plan and apply
 changes. Built to demonstrate practical AWS, Terraform, and DevOps
-fundamentals — not to include every AWS service that exists.
+fundamentals — not to include every AWS service that exists
 
 ## Overview
 
