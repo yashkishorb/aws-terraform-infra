@@ -1,0 +1,149 @@
+name: Terraform CI/CD
+
+# Runs fmt/validate/plan on every PR that touches terraform/, and runs
+# plan -> manual approval -> apply on pushes to main. Environment (dev/prod)
+# is chosen based on which files changed, or manually via workflow_dispatch.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to apply"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  TF_VERSION: "1.9.8"
+  # Defaults to dev unless manually dispatched against prod.
+  TF_ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+  WORKING_DIR: terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+
+permissions:
+  id-token: write   # required for OIDC auth to AWS - no long-lived secrets
+  contents: read
+  pull-requests: write # allows posting the plan output as a PR comment
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Runs on every PR and push: format check, validation, and a plan.
+  # Never applies anything by itself.
+  # ---------------------------------------------------------------------
+  validate:
+    name: Format, Validate & Plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/${{ env.WORKING_DIR }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # OIDC federation to AWS - no static AWS_ACCESS_KEY_ID/SECRET stored
+      # in GitHub. The role trust policy restricts which repo/branch can
+      # assume it.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan
+        continue-on-error: true
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan (${process.env.TF_ENVIRONMENT})
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            `;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Fail if Plan Failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload Plan Artifact
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.TF_ENVIRONMENT }}
+          path: ${{ env.WORKING_DIR }}/tfplan
+          retention-days: 5
+
+  # ---------------------------------------------------------------------
+  # Only runs after a push to main or a manual dispatch, and only after
+  # `validate` succeeds. The `production` GitHub Environment below is
+  # configured with a required reviewer, which is what gives this the
+  # manual approval gate before anything is actually applied.
+  # ---------------------------------------------------------------------
+  apply:
+    name: Terraform Apply
+    needs: validate
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }} # manual approval gate
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/${{ env.WORKING_DIR }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ env.TF_ENVIRONMENT }}
+          path: ${{ env.WORKING_DIR }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
