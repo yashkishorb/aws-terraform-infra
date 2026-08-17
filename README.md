@@ -194,11 +194,5 @@ with `role-to-assume`), not static access keys stored as GitHub secrets.
 - **Least-privilege IAM** — only `AmazonSSMManagedInstanceCore` and
   `CloudWatchAgentServerPolicy` are attached to the instance role.
 
-## Screenshots
 
-> Add screenshots here after deploying: the ALB DNS name loaded in a
-> browser, the AWS Console showing the Auto Scaling Group scaling in
-> response to load, and a passing GitHub Actions run.
-
-`docs/screenshot-app.png` · `docs/screenshot-asg.png` · `docs/screenshot-pipeline.png`
 
