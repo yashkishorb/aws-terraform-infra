@@ -202,32 +202,3 @@ with `role-to-assume`), not static access keys stored as GitHub secrets.
 
 `docs/screenshot-app.png` · `docs/screenshot-asg.png` · `docs/screenshot-pipeline.png`
 
-## Lessons Learned
-
-- Splitting the stack into `networking` / `security` / `compute` /
-  `monitoring` modules made it much easier to reason about — and to
-  explain — than one large `main.tf`.
-- NAT Gateways are the most expensive piece of a small demo environment.
-  Making `single_nat_gateway` a variable (one shared NAT in dev, one per
-  AZ in prod) turned a cost concern into an explicit, documented design
-  decision instead of something accidental.
-- Enforcing "no SSH" from the start (rather than adding it and removing it
-  later) forced setting up SSM Session Manager properly, which turned out
-  to be simpler than managing key pairs and a bastion host.
-- Getting the CloudWatch alarm dimensions right (using each resource's
-  `arn_suffix` attribute rather than string-splitting an ARN) was a good
-  reminder to look for what the provider already exposes before writing
-  string manipulation.
-
-## Future Improvements
-
-- Add HTTPS via ACM + a Route 53 domain, with HTTP→HTTPS redirect
-- Add WAF in front of the ALB
-- Replace the CPU-based scaling policy with a request-count-based one
-- Add a `terraform-compliance` or `tflint`/`checkov` step to CI
-- Add a Grafana/Managed Prometheus dashboard on top of CloudWatch metrics
-- Blue/green or canary deployment support via a second target group
-
-## License
-
-MIT — this is a personal learning/portfolio project.
